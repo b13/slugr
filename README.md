@@ -1,4 +1,4 @@
-## Enhanced Slug Regeneration Features for URL Routing in TYPO3 v9+
+# Enhanced Slug Regeneration Features for URL Routing in TYPO3 v9+
 
 TYPO3 v9 has built-in handling for speaking URLs - called "slugs".
 
