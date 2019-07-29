@@ -26,4 +26,4 @@ As TYPO3 Core, _slugr_ is licensed under GPL2 or later. See the LICENSE file for
 
 ## Authors & Maintenance
 
-_slugr_ was initially created for a Christian Knauf by Benni Mack for [b13, Stuttgart](https://b13.com).
+_slugr_ was initially requested by Christian Knauf and created by Benni Mack for [b13, Stuttgart](https://b13.com).
