@@ -41,24 +41,27 @@ class RegeneratePageSlugCommand extends Command
     protected function configure()
     {
         $this
-            ->setDescription('Regenerates page slugs for a specific site, or language, if it changes from the current one')
+            ->setDescription(
+                'Regenerates page slugs for a specific site, or language, if it changes from the current one'
+            )
             ->addOption(
                 'site',
-                'string',
+                's',
                 InputOption::VALUE_REQUIRED,
                 'Limit this to a specific site, giving an identifier like "main"'
             )
             ->addOption(
                 'language',
                 'l',
-                InputOption::VALUE_REQUIRED,
+                InputOption::VALUE_OPTIONAL,
                 'Limit the regeneration to a specific language ID, used in the site'
             )
             ->addOption(
                 'redirects',
-                '',
-                InputOption::VALUE_NONE,
-                'Add redirects (if redirects extension is installed)'
+                'r',
+                InputOption::VALUE_OPTIONAL,
+                'Add redirects (if redirects extension is installed)',
+                false
             );
     }
 
@@ -71,7 +74,7 @@ class RegeneratePageSlugCommand extends Command
     {
         $io = new SymfonyStyle($input, $output);
 
-        $shouldAddRedirects = $input->getOption('redirects');
+        $shouldAddRedirects = (bool)$input->getOption('redirects');
 
         if ($shouldAddRedirects && !ExtensionManagementUtility::isLoaded('redirects')) {
             $io->error('EXT:redirects is not installed, no redirects possible.');
@@ -81,13 +84,6 @@ class RegeneratePageSlugCommand extends Command
         $limitToLanguage = $input->getOption('language') ? (int)$input->getOption('language') : null;
         $limitToSite = $input->getOption('site') ? $input->getOption('site') : null;
 
-        $sites = [];
-        if ($limitToSite !== null) {
-            $sites[] = GeneralUtility::makeInstance(SiteFinder::class)->getSiteByIdentifier($limitToSite);
-        } else {
-            $sites = GeneralUtility::makeInstance(SiteFinder::class)->getAllSites();
-        }
-
         $slugHelper = GeneralUtility::makeInstance(
             SlugHelper::class,
             'pages',
@@ -96,6 +92,8 @@ class RegeneratePageSlugCommand extends Command
         );
         $slugsToMigrate = [];
         $slugsToMigrateWithLanguage = [];
+
+        $sites = $this->getSites($limitToSite);
         foreach ($sites as $site) {
             if ($io->isVerbose()) {
                 $io->section('Regenerating URLs for site ' . (string)$site->getBase());
@@ -117,8 +115,17 @@ class RegeneratePageSlugCommand extends Command
                 ];
 
                 if ($page['slug'] !== $newSlug) {
-                    $slugsToMigrateWithLanguage[] = ['page' => $page['uid'], 'old' => $page['slug'], 'new' => $newSlug, 'language' => $language];
-                    $slugsToMigrate[] = ['page' => $page['uid'], 'old' => $page['slug'], 'new' => $newSlug];
+                    $slugsToMigrateWithLanguage[] = [
+                        'page' => $page['uid'],
+                        'old' => $page['slug'],
+                        'new' => $newSlug,
+                        'language' => $language,
+                    ];
+                    $slugsToMigrate[] = [
+                        'page' => $page['uid'],
+                        'old' => $page['slug'],
+                        'new' => $newSlug,
+                    ];
                 }
             }
             if ($io->isVerbose()) {
@@ -129,29 +136,14 @@ class RegeneratePageSlugCommand extends Command
 
         $io->caution('The following slugs will now be migrated.');
         $io->table(['Page ID' , 'Old Slug', 'New Slug'], $slugsToMigrate);
-        $proceed = $io->askQuestion(new Question('We found ' . count($slugsToMigrate) . ' page URLs that will be updated. Should we continue?', 'yes')) === 'yes';
-        if ($proceed) {
-            $dataForDataHandler = ['pages' => []];
-            if ($shouldAddRedirects) {
-                $dataForDataHandler['sys_redirect'] = [];
-            }
-            foreach ($slugsToMigrateWithLanguage as $slugData) {
-                $uniqueId = uniqid('NEW_');
-                $dataForDataHandler['pages'][$slugData['page']] = ['slug' => $slugData['new']];
-                if ($shouldAddRedirects) {
-                    $dataForDataHandler['sys_redirect'][$uniqueId] = [
-                        'pid' => 0,
-                        'source_host' => $slugData['language']->getBase()->getHost(),
-                        'source_path' => $slugData['language']->getBase()->getPath() . ltrim($slugData['old'], '/'),
-                        'target' => 't3://page?uid=' . $slugData['page'],
-                        'target_statuscode' => 307
-                    ];
-                }
-            }
-            Bootstrap::initializeBackendAuthentication(true);
-            $dataHandler = GeneralUtility::makeInstance(DataHandler::class);
-            $dataHandler->start($dataForDataHandler, []);
-            $dataHandler->process_datamap();
+        $answer = $io->askQuestion(
+            new Question(
+                'We found ' . count($slugsToMigrate) . ' page URLs that will be updated. Should we continue?',
+                'yes'
+            )
+        );
+        if ($answer === 'yes') {
+            $this->migrateSlugs($slugsToMigrateWithLanguage, $shouldAddRedirects);
             $io->success('Migrated ' . count($slugsToMigrate) . ' Page URLs successfully.');
         } else {
             $io->error('Aborted.');
@@ -160,6 +152,7 @@ class RegeneratePageSlugCommand extends Command
 
     /**
      * Fetch all subpages of a given page ID
+     *
      * @param int $pid
      * @param int|null $languageId
      * @return array
@@ -181,14 +174,67 @@ class RegeneratePageSlugCommand extends Command
             $queryBuilder->andWhere(
                 $queryBuilder->expr()->eq('sys_language_uid', $queryBuilder->createNamedParameter($languageId))
             );
-        };
+        }
         $pages = $queryBuilder->execute()->fetchAll();
 
         // First add all of this level, then add subpages
         $allPages = $pages;
         foreach ($pages ?? [] as $page) {
-            $allPages = array_merge($allPages, $this->getSubPages((int)($page['l10n_parent'] ?: $page['uid']), $languageId));
+            $allPages = array_merge(
+                $allPages,
+                $this->getSubPages((int)($page['l10n_parent'] ?: $page['uid']), $languageId)
+            );
         }
+
         return $allPages;
+    }
+
+    /**
+     * @param string $limitToSite
+     * @return array
+     */
+    protected function getSites($limitToSite): array
+    {
+        $sites = [];
+
+        if ($limitToSite !== null) {
+            $sites[] = GeneralUtility::makeInstance(SiteFinder::class)->getSiteByIdentifier($limitToSite);
+        } else {
+            $sites = GeneralUtility::makeInstance(SiteFinder::class)->getAllSites();
+        }
+
+        return $sites;
+    }
+
+    /**
+     * @param array $slugsToMigrate
+     * @param $shouldAddRedirects
+     */
+    protected function migrateSlugs(array $slugsToMigrate, $shouldAddRedirects = false): void
+    {
+        $dataForDataHandler = ['pages' => []];
+
+        if ($shouldAddRedirects) {
+            $dataForDataHandler['sys_redirect'] = [];
+        }
+
+        foreach ($slugsToMigrate as $slugData) {
+            $uniqueId = uniqid('NEW_');
+            $dataForDataHandler['pages'][$slugData['page']] = ['slug' => $slugData['new']];
+            if ($shouldAddRedirects) {
+                $dataForDataHandler['sys_redirect'][$uniqueId] = [
+                    'pid' => 0,
+                    'source_host' => $slugData['language']->getBase()->getHost(),
+                    'source_path' => $slugData['language']->getBase()->getPath() . ltrim($slugData['old'], '/'),
+                    'target' => 't3://page?uid=' . $slugData['page'],
+                    'target_statuscode' => 307,
+                ];
+            }
+        }
+
+        Bootstrap::initializeBackendAuthentication(true);
+        $dataHandler = GeneralUtility::makeInstance(DataHandler::class);
+        $dataHandler->start($dataForDataHandler, []);
+        $dataHandler->process_datamap();
     }
 }
