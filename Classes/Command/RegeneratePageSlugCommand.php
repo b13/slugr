@@ -187,7 +187,7 @@ class RegeneratePageSlugCommand extends Command
         // First add all of this level, then add subpages
         $allPages = $pages;
         foreach ($pages ?? [] as $page) {
-            $allPages += $this->getSubPages((int)($page['l10n_parent'] ?: $page['uid']), $languageId);
+            $allPages = array_merge($allPages, $this->getSubPages((int)($page['l10n_parent'] ?: $page['uid']), $languageId));
         }
         return $allPages;
     }
