@@ -82,7 +82,7 @@ class RegeneratePageSlugCommand extends Command
 
         }
 
-        $limitToLanguage = $input->getOption('language') ? (int)$input->getOption('language') : false;
+        $limitToLanguage = $input->getOption('language') ? (int)$input->getOption('language') : null;
         $limitToSite = $input->getOption('site') ? $input->getOption('site') : null;
 
         $sites = [];
