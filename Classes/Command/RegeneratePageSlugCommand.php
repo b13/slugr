@@ -78,10 +78,6 @@ class RegeneratePageSlugCommand extends Command
             return 1;
         }
 
-        if (!$shouldAddRedirects) {
-
-        }
-
         $limitToLanguage = $input->getOption('language') ? (int)$input->getOption('language') : null;
         $limitToSite = $input->getOption('site') ? $input->getOption('site') : null;
 
