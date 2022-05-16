@@ -132,6 +132,7 @@ class RegeneratePageSlugCommand extends Command
         }
 
         $io->success('Migrated ' . $pagesToMigrateTotal . ' page URLs for ' . count($sites) . ' site(s) successfully.');
+        return 0;
     }
 
     /**
